@@ -103,4 +103,18 @@ class GoalTest extends TestCase
 
         $this->assertEquals(25, $goal->percentage());
     }
+
+    public function test_goal_percentage_calculation_rounding(): void
+    {
+        $goal = Goal::create([
+            'title' => 'Belajar Laravel',
+            'target' => 8,
+            'unit' => 'bab',
+        ]);
+
+        $goal->update(['progress' => 5]);
+
+        // 5 dari 8 bab = 62.5% -> dibulatkan 63
+        $this->assertEquals(63, $goal->percentage());
+    }
 }

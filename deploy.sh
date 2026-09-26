@@ -2,9 +2,11 @@
 #
 # deploy.sh - Skrip deployment Laravel (7 langkah)
 # Dijalankan di server setelah kode versi baru ditarik.
-# set -e -> script berhenti segera jika ada perintah yang gagal.
+# set -e (wu) -> script berhenti segera jika ada perintah yang gagal.
+# -u -> dipakai variabel yang belum di-set dianggap error
+# -o pipefail -> pipeline dihitung gagal kalau salah satu perintah gagal
 #
-set -e
+set -euo pipefail
 
 cd /var/www/aplikasi
 

@@ -103,4 +103,18 @@ class GoalTest extends TestCase
 
         $this->assertEquals(25, $goal->percentage());
     }
+
+    public function test_goal_percentage_calculation_regression(): void
+    {
+        $goal = Goal::create([
+            'title' => 'Belajar Laravel',
+            'target' => 8,
+            'unit' => 'bab',
+        ]);
+
+        $goal->update(['progress' => 5]);
+
+        // Sengaja ditulis 75 untuk demonstrasi pipeline gagal (Bukti 2)
+        $this->assertEquals(75, $goal->percentage());
+    }
 }

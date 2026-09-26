@@ -1,0 +1,128 @@
+name: Deployment Pipeline
+
+on:
+  push:
+    branches: [main, dev, 'feature/**']
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  # Tahap 1 - Build: pasang dependensi produksi & simpan artifact
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Install Composer dependencies (tanpa dev)
+        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-build
+          path: vendor/
+          retention-days: 7
+
+  # Tahap 2 - Test: hanya jalan jika build sukses
+  test:
+    name: Test
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, sqlite3, pdo_sqlite
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy environment file
+        run: cp .env.example .env
+
+      - name: Generate app key
+        run: php artisan key:generate
+
+      - name: Create SQLite database
+        run: touch database/database.sqlite
+
+      - name: Run tests
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ":memory:"
+        run: php artisan test
+
+  # Tahap 3 - Staging: simulasi deploy (belum ke server)
+  staging:
+    name: Deploy to Staging
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Simulate staging deployment
+        run: |
+          echo "========================================="
+          echo "  DEPLOY KE SERVER STAGING"
+          echo "========================================="
+          echo "Branch  : ${{ github.ref_name }}"
+          echo "Commit  : ${{ github.sha }}"
+          echo "Menjalankan smoke test di environment staging..."
+          echo "Staging deployment selesai."
+
+  # Tahap 4 - Production: HANYA dari branch main + environment production
+  production:
+    name: Deploy to Production
+    needs: staging
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+
+    steps:
+      - name: Menjalankan deploy.sh (7 langkah)
+        run: |
+          echo "========================================="
+          echo "  DEPLOY KE SERVER PRODUCTION"
+          echo "  Menjalankan deploy.sh (7 langkah)"
+          echo "========================================="
+          echo ""
+          echo "1. php artisan down --retry=60"
+          echo "   -> Kunci pintu, tampilkan halaman pemeliharaan"
+          echo ""
+          echo "2. git pull origin main"
+          echo "   -> Ambil kode terbaru"
+          echo ""
+          echo "3. composer install --no-dev --optimize-autoloader"
+          echo "   -> Pasang dependensi tanpa paket dev"
+          echo ""
+          echo "4. php artisan migrate --force"
+          echo "   -> Ubah skema basis data"
+          echo ""
+          echo "5. php artisan config:cache && php artisan route:cache && php artisan view:cache"
+          echo "   -> Bangun ulang cache"
+          echo ""
+          echo "6. php artisan queue:restart"
+          echo "   -> Muat ulang pekerja antrean"
+          echo ""
+          echo "7. php artisan up"
+          echo "   -> Buka pintu kembali"
+          echo ""
+          echo "========================================="
+          echo "  DEPLOY PRODUCTION SELESAI"
+          echo "========================================="

@@ -17,10 +17,10 @@ Dibuat sebagai tugas praktikum **Evolusi Perangkat Lunak** — KEPL2026.
 
 ## 🛠️ Teknologi
 
-- **PHP 8.4** + **Laravel 12**
+- **PHP 8.4** + **Laravel 13**
 - **SQLite** (development) / MySQL (production)
 - **Blade** templating engine
-- **GitHub Actions** CI (Lint + Test)
+- **GitHub Actions** CI/CD — 4 tahap: `build` → `test` → `staging` → `production`
 
 ---
 
@@ -29,7 +29,7 @@ Dibuat sebagai tugas praktikum **Evolusi Perangkat Lunak** — KEPL2026.
 ### Prasyarat
 
 Pastikan sudah terinstal:
-- PHP >= 8.2
+- PHP >= 8.3
 - Composer
 - Node.js & npm (opsional, untuk asset)
 
@@ -87,14 +87,61 @@ main        ← production (protected)
 
 ---
 
-## ⚙️ CI/CD
+## ⚙️ Pipeline CI/CD (Pertemuan 03)
 
-GitHub Actions berjalan otomatis pada setiap push dan pull request:
+Workflow `.github/workflows/ci.yml` berisi **4 job berantai** yang dirangkai dengan `needs:`.
+Setiap job hanya berjalan bila job sebelumnya **sukses**.
 
-| Job | Deskripsi |
-|-----|-----------|
-| **Lint** | Cek code style dengan Laravel Pint |
-| **Test** | Jalankan PHPUnit test suite |
+```
+build  ──▶  test  ──▶  staging  ──▶  production
+```
+
+| # | Job | `needs:` | Syarat | Isi |
+|---|-----|----------|--------|-----|
+| 1 | `build` | — | — | `composer install --no-dev` + upload artifact `vendor/` |
+| 2 | `test` | `build` | — | `composer install` (dev), `key:generate`, SQLite in-memory, `php artisan test` |
+| 3 | `staging` | `test` | — | Simulasi deploy ke staging (`echo`) |
+| 4 | `production` | `staging` | `if: github.ref == 'refs/heads/main'` | 7 langkah `deploy.sh` (`echo`), memakai environment `production` |
+
+**Penjaga job `production`:**
+
+```yaml
+production:
+  needs: staging
+  if: github.ref == 'refs/heads/main'   # hanya branch main
+  environment:
+    name: production                    # wajib approval reviewer
+```
+
+- Push ke branch `feature/**` atau `dev` → `build` dan `test` tetap jalan,
+  `production` otomatis **skipped** karena `github.ref` bukan `refs/heads/main`.
+- Push ke `main` → seluruh 4 job jalan, dan `production` **menunggu approval**
+  reviewer environment sebelum eksekusi.
+- Kalau `test` gagal, `staging` dan `production` **tidak dijalankan** sama sekali
+  (effect chain dari `needs:`).
+
+### 🚀 Skrip Deployment
+
+`deploy.sh` di root repository berisi 7 langkah deployment dan memakai `set -e`
+(berhenti segera jika ada perintah gagal):
+
+```bash
+#!/usr/bin/env bash
+set -e
+cd /var/www/aplikasi
+php artisan down --retry=60      # 1. kunci pintu
+git pull origin main             # 2. ambil kode terbaru
+composer install --no-dev --optimize-autoloader   # 3. pasang dependensi
+php artisan migrate --force      # 4. ubah skema basis data
+php artisan config:cache         # 5. bangun ulang cache
+php artisan route:cache
+php artisan view:cache
+php artisan queue:restart        # 6. muat ulang worker antrean
+php artisan up                   # 7. buka pintu
+```
+
+> Deploy ke server asli belum dilakukan — pada job `production` langkah-langkah ini
+> masih ditulis sebagai `echo` sesuai instruksi tugas.
 
 ---
 
@@ -111,7 +158,8 @@ resources/views/
 routes/
 ├── web.php                                ← Definisi routes
 .github/workflows/
-├── ci.yml                                 ← GitHub Actions CI
+├── ci.yml                                 ← Pipeline 4 tahap (P3)
+deploy.sh                                 ← Skrip deployment 7 langkah (P3)
 ```
 
 ---

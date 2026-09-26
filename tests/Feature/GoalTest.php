@@ -104,7 +104,7 @@ class GoalTest extends TestCase
         $this->assertEquals(25, $goal->percentage());
     }
 
-    public function test_goal_percentage_calculation_regression(): void
+    public function test_goal_percentage_calculation_rounding(): void
     {
         $goal = Goal::create([
             'title' => 'Belajar Laravel',
@@ -114,7 +114,7 @@ class GoalTest extends TestCase
 
         $goal->update(['progress' => 5]);
 
-        // Sengaja ditulis 75 untuk demonstrasi pipeline gagal (Bukti 2)
-        $this->assertEquals(75, $goal->percentage());
+        // 5 dari 8 bab = 62.5% -> dibulatkan 63
+        $this->assertEquals(63, $goal->percentage());
     }
 }

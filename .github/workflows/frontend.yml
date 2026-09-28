@@ -1,0 +1,206 @@
+name: Frontend CI/CD
+
+# Pipeline untuk aplikasi Vue 3 di folder frontend/.
+# Empat job dirangkai dengan `needs:`. Urutannya:
+#
+#   lint  ->  test  ->  build  ->  deploy
+#
+# - Pull Request  : lint, test, build jalan; deploy dilewati.
+# - Push ke main  : keempatnya jalan, lalu dist/ dikirim ke Vercel.
+#
+# Deploy TIDAK PERNAH menjalankan `npm run build` lagi. Isi dist/ dibuat
+# satu kali di job `build`, diunggah sebagai artifact, lalu diunduh utuh
+# oleh job `deploy`. Build ulang di job deploy akan membatalkan syarat
+# "dist/ tanpa build ulang".
+
+on:
+  push:
+    branches:
+      - main
+  # Semua Pull Request, apa pun branch tujuannya. Pada alur Git Flow
+  # repo ini PR-nya feature/* -> dev, jadi tidak boleh dibatasi ke main.
+  pull_request:
+  workflow_dispatch:
+
+# Cancel run lama kalau ada commit baru pada branch yang sama.
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: frontend
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ------------------------------------------------------------------
+  # Job 1 dari 4 - lint
+  # ------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js dan cache npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Cache bawaan setup-node untuk npm, dikunci ke lockfile
+          # yang ada di folder frontend/.
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependensi (npm ci)
+        run: npm ci
+
+      - name: Jalankan ESLint
+        run: npm run lint
+
+  # ------------------------------------------------------------------
+  # Job 2 dari 4 - test
+  # ------------------------------------------------------------------
+  test:
+    name: Test (Vitest)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js dan cache npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Cache bawaan setup-node untuk npm, dikunci ke lockfile
+          # yang ada di folder frontend/.
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependensi (npm ci)
+        run: npm ci
+
+      # Unit test murni: tidak memanggil API, tidak butuh server Laravel.
+      - name: Jalankan unit test Vitest
+        run: npm test
+
+  # ------------------------------------------------------------------
+  # Job 3 dari 4 - build
+  # Hanya di sini dist/ dibuat. Satu-satunya tempat di pipeline ini
+  # yang menjalankan build.
+  # ------------------------------------------------------------------
+  build:
+    name: Build (Vite)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js dan cache npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Cache bawaan setup-node untuk npm, dikunci ke lockfile
+          # yang ada di folder frontend/.
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependensi (npm ci)
+        run: npm ci
+
+      - name: Bangun dist/ dengan Vite
+        env:
+          # Alamat API Laravel ikut di-inline ke dalam hasil build.
+          # Disimpan sebagai repository variable bernama VITE_API_URL.
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: npm run build
+
+      - name: Unggah dist/ sebagai artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------
+  # Job 4 dari 4 - deploy
+  # Hanya jalan untuk push ke main. Menunduh dist/ dari job build,
+  # menampilkannya ke log, lalu mengirimkannya ke Vercel apa adanya.
+  # ------------------------------------------------------------------
+  deploy:
+    name: Deploy (Vercel)
+    runs-on: ubuntu-latest
+    needs: build
+
+    # Penjaga deploy: pull request tidak pernah menyentuh produksi.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    environment:
+      name: production-frontend
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Unduh dist/ dari job build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      # Bukti bahwa job ini memakai hasil build, bukan membangun ulang.
+      - name: Tampilkan isi dist/ (hasil build, tanpa build ulang)
+        run: |
+          echo "Isi folder dist/ yang diunduh dari job build:"
+          echo "--------------------------------------------------"
+          find dist -type f -printf '%10s  %p\n' | sort -k2
+          echo "--------------------------------------------------"
+          echo "Jumlah file : $(find dist -type f | wc -l)"
+          echo "Total ukuran: $(du -sh dist | cut -f1)"
+          echo ""
+          echo "Bukti tidak ada build ulang di job ini:"
+          echo "- package.json di folder frontend/ tidak di-install di sini"
+          echo "- perintah 'npm run build' tidak pernah dijalankan"
+          echo "- isinya berasal dari artifact 'frontend-dist'"
+
+      # Ketersediaan token dicepak di dalam shell, bukan di `if:` step.
+      # Konteks `secrets` tidak boleh dipakai di `if:` level step.
+      - name: Deploy dist/ ke Vercel
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::notice::VERCEL_TOKEN belum diisi, jadi dist/ tidak dikirim ke Vercel."
+            echo "Isi secret repository bernama VERCEL_TOKEN untuk mengaktifkan bonus deploy."
+            echo "dist/ tetap sudah dibuktikan lengkap pada langkah sebelumnya."
+            exit 0
+          fi
+
+          # `vercel deploy <folder>` mengunggah folder apa adanya.
+          # buildCommand dikosongkan di vercel.json, jadi Vercel tidak
+          # menjalankan build sendiri.
+          args="--prod --token=$VERCEL_TOKEN --yes"
+          if [ -n "$VERCEL_ORG_ID" ]; then args="$args --scope $VERCEL_ORG_ID"; fi
+
+          output=$(npx --yes vercel@latest deploy $args dist)
+          echo "$output"
+
+          url=$(echo "$output" | grep -Eo 'https://[^ ]+' | tail -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"

@@ -20,7 +20,11 @@ Dibuat sebagai tugas praktikum **Evolusi Perangkat Lunak** — KEPL2026.
 - **PHP 8.4** + **Laravel 13**
 - **SQLite** (development) / MySQL (production)
 - **Blade** templating engine
-- **GitHub Actions** CI/CD — 4 tahap: `build` → `test` → `staging` → `production`
+- **Vue 3** + **Vue Router** + **Vite** (folder `frontend/`)
+- **Vitest** untuk unit test frontend
+- **GitHub Actions** CI/CD — dua pipeline:
+  - `ci.yml` (backend): `build` → `test` → `staging` → `production`
+  - `frontend.yml` (frontend): `lint` → `test` → `build` → `deploy`
 
 ---
 
@@ -66,7 +70,56 @@ Akses aplikasi di: **http://localhost:8000**
 ## 🧪 Menjalankan Tests
 
 ```bash
-php artisan test
+php artisan test                        # backend (PHPUnit)
+
+cd frontend
+npm test                                # frontend (Vitest) — tanpa Laravel
+npm run lint                            # ESLint
+```
+
+---
+
+## 🔌 Endpoint JSON untuk Frontend (Pertemuan 04)
+
+Aplikasi Vue di `frontend/` membaca data lewat endpoint JSON, bukan HTML.
+
+| Method | Endpoint | Keterangan |
+|---|---|---|
+| `GET` | `/api/goals` | Daftar semua goal beserta persentase dan status selesai |
+| `GET` | `/api/goals/{goal}` | Detail satu goal |
+
+Contoh respons:
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "title": "Baca 10 buku",
+      "target": 10,
+      "progress": 3,
+      "unit": "buku",
+      "percentage": 30,
+      "is_completed": false
+    }
+  ],
+  "meta": { "total": 1, "completed": 0 }
+}
+```
+
+**CORS** diatur di `config/cors.php`. Origin Vue di laptop sudah dicantumkan
+eksplisit, jadi tidak memakai `*`:
+
+| Origin |dipakai oleh |
+|---|---|
+| `http://localhost:5173` | `npm run dev` |
+| `http://localhost:4173` | `npm run preview` |
+| `env('FRONTEND_ORIGIN')` | domain Vercel produksi |
+
+Uji cepat:
+
+```bash
+curl -H "Origin: http://localhost:5173" http://127.0.0.1:8000/api/goals
 ```
 
 ---
@@ -145,21 +198,96 @@ php artisan up                   # 7. buka pintu
 
 ---
 
+## 🎨 Pipeline Frontend (Pertemuan 04)
+
+Workflow `.github/workflows/frontend.yml` berisi **4 job berantai** untuk
+aplikasi Vue di `frontend/`:
+
+```
+lint  ──▶  test  ──▶  build  ──▶  deploy
+```
+
+| # | Job | `needs:` | Isi |
+|---|-----|----------|-----|
+| 1 | `lint` | — | `npm ci` + `npm run lint` (ESLint) |
+| 2 | `test` | `lint` | `npm ci` + `npm test` (Vitest) |
+| 3 | `build` | `test` | `npm ci` + `npm run build`, unggah `dist/` sebagai artifact |
+| 4 | `deploy` | `build` | unduh `dist/`, tampilkan ke log, kirim ke Vercel |
+
+Setiap job memakai `cache: 'npm'` dari `actions/setup-node`.
+
+### `dist/` tanpa build ulang
+
+Job `deploy` **tidak pernah** menjalankan `npm run build`. Ia hanya:
+
+1. mengunduh artifact `frontend-dist` yang dibuat job `build`,
+2. mencetak isi `dist/` ke log sebagai bukti,
+3. mengirim folder itu apa adanya ke Vercel (`buildCommand` dikosongkan di
+   `frontend/vercel.json`, jadi Vercel tidak membangun ulang).
+
+Kalau `test` gagal, `build` dan `deploy` **tidak dijalankan** sama sekali
+(effect chain dari `needs:`).
+
+### Penjaga deploy
+
+```yaml
+deploy:
+  needs: build
+  if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+```
+
+- **Pull Request** → `lint`, `test`, `build` jalan; `deploy` **skipped**.
+- **Push ke `main`** → keempat job jalan, lalu menunggu approval reviewer
+  pada environment `production-frontend`.
+
+### Deploy ke Vercel
+
+Bonus deploy ke Vercel butuh dua hal:
+
+1. **Secret** `VERCEL_TOKEN` (opsional `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`).
+   Buat di **Settings → Secrets and variables → Actions**.
+2. **Matikan deploy otomatis Vercel** di *Project Settings → Git* — centang
+   opsinya dimatikan. Kalau tidak, Vercel ikut rebuild sendiri saat commit
+   masuk, dan syarat "tanpa build ulang" tidak berlaku lagi.
+
+Variabel `VITE_API_URL` (Settings → Secrets and variables → Actions →
+*Variables*) dipakai job `build` untuk meng-inline alamat API Laravel ke
+hasil build.
+
+Alamat API dibaca di `frontend/src/lib/api.js` dari `import.meta.env`,
+tidak ada URL yang ditulis langsung di kode.
+
+---
+
 ## 📁 Struktur Proyek
 
 ```
 app/
-├── Http/Controllers/GoalController.php   ← Controller utama
-├── Models/Goal.php                        ← Eloquent model
+├── Http/Controllers/GoalController.php        ← Controller CRUD (Blade)
+├── Http/Controllers/Api/GoalApiController.php ← Controller JSON
+├── Models/Goal.php                             ← Eloquent model
+config/
+├── cors.php                                    ← Izin origin untuk Vue
 database/
-├── migrations/                            ← Skema database
+├── migrations/                                 ← Skema database
+frontend/
+├── src/views/                                  ← Beranda, Goals, Detail
+├── src/components/                             ← GoalCard, ApiErrorAlert
+├── src/lib/api.js                              ← Klien API (VITE_API_URL)
+├── src/lib/goalFormat.js                       ← Logika murni (diuji Vitest)
+├── src/lib/*.test.js                           ← Unit test
+├── vercel.json                                 ← Rewrite SPA
+└── .env.example                                ← VITE_API_URL
 resources/views/
-├── goals/index.blade.php                  ← Tampilan utama
+├── goals/index.blade.php                       ← Tampilan utama
 routes/
-├── web.php                                ← Definisi routes
+├── web.php                                     ← Route Blade
+├── api.php                                     ← Route JSON /api/goals
+tests/Feature/GoalApiTest.php                   ← Uji endpoint + CORS
 .github/workflows/
-├── ci.yml                                 ← Pipeline 4 tahap (P3)
-deploy.sh                                 ← Skrip deployment 7 langkah (P3)
+├── ci.yml                                      ← Pipeline backend 4 tahap (P3)
+├── frontend.yml                                ← Pipeline frontend 4 job (P4)
+deploy.sh                                      ← Skrip deployment 7 langkah (P3)
 ```
 
 ---

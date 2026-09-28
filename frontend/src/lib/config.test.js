@@ -1,9 +1,19 @@
 // @vitest-environment node
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { buildDistConfig, prepareDist } from '../../scripts/prepare-dist.mjs'
 
 /*
  * Test konfigurasi.
@@ -41,6 +51,66 @@ describe('konfigurasi Vercel', () => {
 
   it('menunjuk outputDirectory ke dist', () => {
     expect(vercel.outputDirectory).toBe('dist')
+  })
+})
+
+describe('konfigurasi yang ikut terunggah ke Vercel', () => {
+  // Job deploy mengunggah folder dist/ sebagai root project, jadi Vercel
+  // membaca konfigurasi dari dist/vercel.json - bukan frontend/vercel.json.
+  // Kalau berkas ini tidak ikut terunggah, rewrite tidak berlaku dan
+  // halaman kedua tidak bisa di-refresh.
+  const rootConfig = JSON.parse(read('vercel.json'))
+
+  it('dibuat oleh npm run build, bukan manual', () => {
+    const pkg = JSON.parse(read('package.json'))
+    expect(pkg.scripts.build).toContain('prepare-dist.mjs')
+  })
+
+  it('memakai rewrite yang sama dengan vercel.json', () => {
+    const forDist = buildDistConfig(rootConfig)
+    expect(forDist.rewrites).toEqual(rootConfig.rewrites)
+    expect(forDist.rewrites.find((r) => r.source === '/(.*)').destination).toBe('/index.html')
+  })
+
+  it('tidak menyuruh Vercel membangun ulang', () => {
+    const forDist = buildDistConfig(rootConfig)
+    // Kalau buildCommand terisi, Vercel akan membangun sendiri dan
+    // dist/ dari artifact tidak lagi dipakai.
+    expect(forDist.buildCommand ?? null).toBeNull()
+    expect(forDist.outputDirectory ?? null).toBeNull()
+  })
+
+  it('menolak konfigurasi tanpa rewrite', () => {
+    expect(() => buildDistConfig({})).toThrow(/tidak punya rewrite/)
+    expect(() => buildDistConfig({ rewrites: [] })).toThrow(/tidak punya rewrite/)
+  })
+
+  it('benar-benar menulis dist/vercel.json', () => {
+    // Folder sementara, supaya test tidak bergantung pada dist/ yang
+    // belum ada saat job test berjalan sebelum job build.
+    const temp = mkdtempSync(join(tmpdir(), 'dist-test-'))
+    try {
+      mkdirSync(join(temp, 'dist'))
+      writeFileSync(join(temp, 'vercel.json'), JSON.stringify(rootConfig))
+
+      const result = prepareDist(temp)
+      const written = JSON.parse(readFileSync(join(temp, 'dist', 'vercel.json'), 'utf8'))
+
+      expect(written).toEqual(result)
+      expect(written.rewrites[0].destination).toBe('/index.html')
+      expect(written.buildCommand).toBeUndefined()
+    } finally {
+      rmSync(temp, { recursive: true, force: true })
+    }
+  })
+
+  it('menolak folder dist/ yang belum ada', () => {
+    const temp = mkdtempSync(join(tmpdir(), 'dist-test-'))
+    try {
+      expect(() => prepareDist(temp)).toThrow(/belum ada/)
+    } finally {
+      rmSync(temp, { recursive: true, force: true })
+    }
   })
 })
 

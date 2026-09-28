@@ -151,10 +151,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      # Cache npm ikut dipasang di sini supaya `npx vercel` tidak
+      # mengunduh ulang paket setiap kali pipeline jalan.
+      - name: Setup Node.js dan cache npm
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Unduh dist/ dari job build
         uses: actions/download-artifact@v4
@@ -174,7 +178,7 @@ jobs:
           echo ""
           echo "Bukti tidak ada build ulang di job ini:"
           echo "- package.json di folder frontend/ tidak di-install di sini"
-          echo "- perintah 'npm run build' tidak pernah dijalankan"
+          echo "- job ini tidak pernah memanggil perintah build Vite"
           echo "- isinya berasal dari artifact 'frontend-dist'"
 
       # Ketersediaan token dicepak di dalam shell, bukan di `if:` step.

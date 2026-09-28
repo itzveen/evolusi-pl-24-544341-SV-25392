@@ -23,7 +23,7 @@ describe('formatPercentage', () => {
 
   it('membulatkan angka desimal', () => {
     expect(formatPercentage(62.4)).toBe('62%')
-    expect(formatPercentage(62.5)).toBe('62%')
+    expect(formatPercentage(62.5)).toBe('63%')
   })
 
   it('mengubah nilai di luar rentang 0-100', () => {

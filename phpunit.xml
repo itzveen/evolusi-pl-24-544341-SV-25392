@@ -19,6 +19,14 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!--
+            Kunci khusus untuk pengujian. Tanpa baris ini, `php artisan
+            test` gagal dengan MissingAppKeyException setiap kali
+            repository di-clone baru karena file .env belum ada.
+            Kunci ini hanya dipakai saat test, bukan untuk aplikasi
+            sungguhan - nilai aslinya tetap di .env.
+        -->
+        <env name="APP_KEY" value="base64:c1TQO4oFyIpuBxxtacE6dXVgZ8iovhq9FW+UtdEnnlk="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

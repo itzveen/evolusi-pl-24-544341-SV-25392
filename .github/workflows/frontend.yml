@@ -17,9 +17,9 @@ on:
   push:
     branches:
       - main
+  # Semua Pull Request, apa pun branch tujuannya. Pada alur Git Flow
+  # repo ini PR-nya feature/* -> dev, jadi tidak boleh dibatasi ke main.
   pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 # Cancel run lama kalau ada commit baru pada branch yang sama.
@@ -177,16 +177,24 @@ jobs:
           echo "- perintah 'npm run build' tidak pernah dijalankan"
           echo "- isinya berasal dari artifact 'frontend-dist'"
 
+      # Ketersediaan token dicepak di dalam shell, bukan di `if:` step.
+      # Konteks `secrets` tidak boleh dipakai di `if:` level step.
       - name: Deploy dist/ ke Vercel
         id: deploy
-        if: ${{ secrets.VERCEL_TOKEN != '' }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::notice::VERCEL_TOKEN belum diisi, jadi dist/ tidak dikirim ke Vercel."
+            echo "Isi secret repository bernama VERCEL_TOKEN untuk mengaktifkan bonus deploy."
+            echo "dist/ tetap sudah dibuktikan lengkap pada langkah sebelumnya."
+            exit 0
+          fi
+
           # `vercel deploy <folder>` mengunggah folder apa adanya.
-          # BuildCommand dikosongkan di vercel.json, jadi Vercel tidak
+          # buildCommand dikosongkan di vercel.json, jadi Vercel tidak
           # menjalankan build sendiri.
           args="--prod --token=$VERCEL_TOKEN --yes"
           if [ -n "$VERCEL_ORG_ID" ]; then args="$args --scope $VERCEL_ORG_ID"; fi
@@ -196,10 +204,3 @@ jobs:
 
           url=$(echo "$output" | grep -Eo 'https://[^ ]+' | tail -1)
           echo "url=$url" >> "$GITHUB_OUTPUT"
-
-      - name: Catatan bila token Vercel belum diisi
-        if: ${{ secrets.VERCEL_TOKEN == '' }}
-        run: |
-          echo "VERCEL_TOKEN belum diisi, jadi dist/ tidak dikirim ke Vercel."
-          echo "Isi secret repository bernama VERCEL_TOKEN untuk mengaktifkan bonus deploy."
-          echo "dist/ tetap sudah dibuktikan lengkap di langkah sebelumnya."

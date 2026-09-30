@@ -4,6 +4,7 @@ use App\Http\Controllers\GoalController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
+    // Pertemuan 05: Docker Cache Test (Layer Invalidation)
     return view('welcome');
 });
 

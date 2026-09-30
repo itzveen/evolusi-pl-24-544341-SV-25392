@@ -1,0 +1,34 @@
+# Wajib sesuai instruksi tugas Pertemuan 05:
+node_modules
+vendor
+.git
+.env
+
+# Environment & local settings
+.env.*
+!.env.example
+
+# Cache & logs
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+bootstrap/cache/*.php
+
+# Testing & tool cache
+tests
+.phpunit.result.cache
+phpunit.xml
+
+# Git & editor
+.gitignore
+.gitattributes
+.editorconfig
+.github
+
+# Frontend assets (terpisah)
+frontend/node_modules
+frontend/dist
+
+# Documentation & scripts
+README.md

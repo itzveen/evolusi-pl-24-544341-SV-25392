@@ -1,34 +1,72 @@
-# Wajib sesuai instruksi tugas Pertemuan 05:
+# =============================================================================
+#  .dockerignore — Pertemuan 05 (Slide 14 & 17)
+#
+#  Tanpa file ini, SELURUH folder kerja ikut terkirim sebagai build context:
+#  node_modules (ratusan MB), vendor, .git, dan file .env yang berisi APP_KEY.
+#  Akibatnya: build lambat, image gemuk, dan cache layer terus batal.
+#
+#  Catatan: yang TIDAK boleh dikecualikan = composer.json, composer.lock,
+#  package.json, dan .env.example. Dockerfile membutuhkan keempatnya.
+# =============================================================================
+
+
+# --- WAJIB (Slide 17 butir 2) ----------------------------------------------
 node_modules
 vendor
 .git
 .env
+# ----------------------------------------------------------------------------
 
-# Environment & local settings
+
+# --- Environment & konfigurasi lokal ----------------------------------------
+# Semua .env.* ikut dikecualikan, TAPI .env.example tetap ikut karena
+# Dockerfile membutuhkannya untuk membuat APP_KEY di dalam image.
 .env.*
 !.env.example
 
-# Cache & logs
+
+# --- Database lokal: jangan pernah bocor ke dalam image --------------------
+# Kalau ikut, image tidak deterministik dan isi database laptop ikut ter-copy.
+database/*.sqlite
+database/*.sqlite-journal
+database/*.sqlite-shm
+database/*.sqlite-wal
+
+
+# --- Cache & log runtime ----------------------------------------------------
+# Isi folder-folder ini berubah tiap kali aplikasi dijalankan. Kalau ikut
+# ter-copy, BuildKit menghitung ulang checksum dan membatalkan cache.
 storage/logs/*
 storage/framework/cache/*
 storage/framework/sessions/*
 storage/framework/views/*
+storage/framework/testing/*
 bootstrap/cache/*.php
 
-# Testing & tool cache
-tests
-.phpunit.result.cache
-phpunit.xml
 
-# Git & editor
+# --- Dependensi & hasil build JavaScript ------------------------------------
+frontend/node_modules
+frontend/dist
+frontend/.vite
+public/build
+public/hot
+public/storage
+public/fonts-manifest.dev.json
+
+
+# --- Testing: tidak ada di dalam image produksi ---------------------------
+tests
+phpunit.xml
+.phpunit.result.cache
+.phpunit.cache
+
+
+# --- Git & editor: tidak ada gunanya di dalam image ------------------------
 .gitignore
 .gitattributes
 .editorconfig
 .github
-
-# Frontend assets (terpisah)
-frontend/node_modules
-frontend/dist
-
-# Documentation & scripts
-README.md
+.vscode
+.idea
+.DS_Store
+*.log
